@@ -9,6 +9,8 @@ using SlowTests.Sharding.Cluster;
 using Xunit;
 using FastTests.Voron.Util;
 using SlowTests.Server;
+using SlowTests.Issues;
+using static SlowTests.Issues.RavenDB_23103;
 
 namespace Tryouts;
 
@@ -23,18 +25,18 @@ public static class Program
     {
         Console.WriteLine(Process.GetCurrentProcess().Id);
 
-        for (int i = 0; i < 1; i++)
+        for (int i = 0; i < 10; i++)
         {
             Console.WriteLine($"Starting to run {i}");
 
             try
             {
                 using (var testOutputHelper = new ConsoleTestOutputHelper())
-                using (var test = new RecordingTransactionOperationsMergerTests(testOutputHelper))
+                using (var test = new RavenDB_23103(testOutputHelper))
                 {
                     DebuggerAttachedTimeout.DisableLongTimespan = true;
                     //test.CanRoundTripSmallContainer("GreaterThan42B");
-                    await test.RecordingDeleteRevisionsCommand();
+                    test.WaitForIndexesAfterPatch_Simple_AllDocsQuery();
                 }
             }
             catch (Exception e)

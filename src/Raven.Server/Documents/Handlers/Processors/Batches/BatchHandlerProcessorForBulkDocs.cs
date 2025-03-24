@@ -49,7 +49,7 @@ internal sealed class BatchHandlerProcessorForBulkDocs : AbstractBatchHandlerPro
         HashSet<string> modifiedCollections, CancellationToken token = default)
     {
         long lastEtag = ChangeVectorUtils.GetEtagById(lastChangeVector, RequestHandler.Database.DbBase64Id);
-        await WaitForIndexesAsync(RequestHandler.Database, options.WaitForIndexesTimeout, options.WaitForSpecificIndexes, options.ThrowOnTimeoutInWaitForIndexes, lastEtag, lastTombstoneEtag, modifiedCollections, token);
+        await WaitForIndexesAsync(RequestHandler.Database, options.WaitForIndexesTimeout.Value, options.WaitForSpecificIndexes, options.ThrowOnTimeoutInWaitForIndexes, lastEtag, lastTombstoneEtag, modifiedCollections, token);
     }
 
     public static async Task WaitForIndexesAsync(DocumentDatabase database, TimeSpan timeout, string[] specifiedIndexesQueryString, bool throwOnTimeout, long lastDocumentEtag, long lastTombstoneEtag, HashSet<string> modifiedCollections, CancellationToken token)
@@ -91,6 +91,8 @@ internal sealed class BatchHandlerProcessorForBulkDocs : AbstractBatchHandlerPro
 
         var cutoffEtag = Math.Max(lastDocumentEtag, lastTombstoneEtag);
 
+        // int indexesWaitedFor = 0;
+
         while (true)
         {
             var hadStaleIndexes = false;
@@ -106,7 +108,7 @@ internal sealed class BatchHandlerProcessorForBulkDocs : AbstractBatchHandlerPro
 
                     hadStaleIndexes = true;
                     await waitForIndexItem.WaitForIndexing.WaitForIndexingAsync(waitForIndexItem.IndexBatchAwaiter).WithCancellation(token);
-
+                    // Console.WriteLine(++indexesWaitedFor);
                     if (waitForIndexItem.WaitForIndexing.TimeoutExceeded)
                     {
                         if (throwOnTimeout == false)

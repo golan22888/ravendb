@@ -1,13 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Amazon.S3.Model;
+using Azure;
 using Microsoft.AspNetCore.Http;
+using Microsoft.VisualBasic;
 using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations;
 using Raven.Client.Documents.Queries;
 using Raven.Client.Exceptions;
 using Raven.Client.Exceptions.Documents.Indexes;
 using Raven.Client.Util.RateLimiting;
+using Raven.Server.Documents.Handlers.Processors.Batches;
 using Raven.Server.Documents.Indexes;
 using Raven.Server.Documents.Patch;
 using Raven.Server.Documents.Queries.Suggestions;
@@ -15,6 +19,8 @@ using Raven.Server.Documents.TransactionMerger;
 using Raven.Server.Documents.TransactionMerger.Commands;
 using Raven.Server.ServerWide;
 using Raven.Server.ServerWide.Context;
+using Raven.Server.Utils;
+using Raven.Server.Web;
 using Sparrow.Json;
 using Index = Raven.Server.Documents.Indexes.Index;
 using PatchRequest = Raven.Server.Documents.Patch.PatchRequest;
@@ -97,24 +103,34 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
         return await index.SuggestionQuery(query, queryContext, token).ConfigureAwait(false);
     }
 
-    protected Task<IOperationResult> ExecuteDelete(IndexQueryServerSide query, Index index, QueryOperationOptions options, QueryOperationContext queryContext, Action<DeterminateProgress> onProgress, OperationCancelToken token)
+    protected Task<IOperationResult> ExecuteDelete(IndexQueryServerSide query, Index index, QueryOperationOptions options, QueryOperationContext queryContext,
+        Action<DeterminateProgress> onProgress, OperationCancelToken token)
     {
         return ExecuteOperation(query, index, options, queryContext, onProgress, (key, retrieveDetails) =>
         {
             var command = new DeleteDocumentCommand(key, null, Database);
 
-            return new BulkOperationCommand<DeleteDocumentCommand>(command, retrieveDetails, x => new BulkOperationResult.DeleteDetails
-            {
-                Id = key,
-                Etag = x.DeleteResult?.Etag
-            }, null);
+            return new BulkOperationCommand<DeleteDocumentCommand>(command, retrieveDetails,
+                x => 
+                    new BulkOperationResult.DeleteDetails { Id = key, Etag = x.DeleteResult?.Etag, }, null,
+                x => 
+                    (x.DeleteResult?.Collection.Name, x.DeleteResult?.Etag ?? 0));
         }, token);
     }
 
-    protected Task<IOperationResult> ExecutePatch(IndexQueryServerSide query, Index index, QueryOperationOptions options, PatchRequest patch,
+
+//     return new BulkOperationCommand<PatchDocumentCommand>(command, retrieveDetails,
+//     x => new BulkOperationResult.PatchDetails { Id = key, ChangeVector = x.PatchResult.ChangeVector, Status = x.PatchResult.Status, },
+//     c => c.PatchResult?.Dispose(),
+//     x => (x.PatchResult.Collection, x.PatchResult.ChangeVector));
+// }, token);
+
+
+
+protected Task<IOperationResult> ExecutePatch(IndexQueryServerSide query, Index index, QueryOperationOptions options, PatchRequest patch,
         BlittableJsonReaderObject patchArgs, QueryOperationContext queryContext, Action<DeterminateProgress> onProgress, OperationCancelToken token)
     {
-        return ExecuteOperation(query, index, options, queryContext, onProgress,
+        var operation =  ExecuteOperation(query, index, options, queryContext, onProgress,
             (key, retrieveDetails) =>
             {
                 var command = new PatchDocumentCommand(queryContext.Documents, key,
@@ -128,18 +144,21 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
                     isTest: false,
                     collectResultsNeeded: true,
                     returnDocument: false,
-                    ignoreMaxStepsForScript: options.IgnoreMaxStepsForScript);
+                    ignoreMaxStepsForScript: options.IgnoreMaxStepsForScript
+                    );
+                // command.PatchResult.Collection TODO
+                // need to do MTAThreadAttribute after the command finished running
+                // command.CollectionName
+                //add the logic to here instead of queryrunner. wait for indexes in specific cases
 
                 return new BulkOperationCommand<PatchDocumentCommand>(command, retrieveDetails,
-                    x => new BulkOperationResult.PatchDetails
-                    {
-                        Id = key,
-                        ChangeVector = x.PatchResult.ChangeVector,
-                        Status = x.PatchResult.Status
-                    },
-                    c => c.PatchResult?.Dispose());
+                    x => new BulkOperationResult.PatchDetails { Id = key, ChangeVector = x.PatchResult.ChangeVector, Status = x.PatchResult.Status, },
+                    c => c.PatchResult?.Dispose(),
+                    x => (x.PatchResult.Collection, ChangeVectorUtils.GetEtagById(x.PatchResult.ChangeVector, Database.DbBase64Id)));
             }, token);
+        return operation;
     }
+     
 
     private async Task<IOperationResult> ExecuteOperation<T>(
         IndexQueryServerSide query,
@@ -184,7 +203,15 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
         onProgress(progress);
 
         var result = new BulkOperationResult();
+        WaitForIndexesInformation information = null;
+
         void RetrieveDetails(IBulkOperationDetails details) => result.Details.Add(details);
+        void RetrieveDetailsForIndexing((string CollectionName, long Etag) tuple)
+        {
+            information ??= new WaitForIndexesInformation();
+            information.Collections.Add(tuple.CollectionName);
+            information.LastEtag = tuple.Etag;
+        }
 
         using (var rateGate = options.MaxOpsPerSecond.HasValue ? new RateGate(options.MaxOpsPerSecond.Value, TimeSpan.FromSeconds(1)) : null)
         {
@@ -197,24 +224,62 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
                         if (options.RetrieveDetails)
                             subCommand.RetrieveDetails = RetrieveDetails;
 
+                        if (options.IndexOptions != null && options.IndexOptions.WaitForIndexes)
+                            subCommand.RetrieveDetailsForIndexing = RetrieveDetailsForIndexing;
+
                         return subCommand;
                     }, rateGate, token,
                     batchSize: batchSize);
 
+
                 await Database.TxMerger.Enqueue(command).ConfigureAwait(false);
+                
+                //golan : I have the collection here of the specific command
 
                 progress.Processed += command.Processed;
-
                 onProgress(progress);
 
                 if (command.NeedWait)
                     rateGate?.WaitToProceed();
+
+                // var collection = index.Collections;// should not be taken from index
+                // foreach (var c in collection)
+                // {
+                //     collections.Add(c);
+                // }
+            }
+
+            // get last etag
+            // long lastEtag = 0;
+            // foreach (var c in collections)
+            // {
+                // using (queryContext.OpenReadTransaction())
+                // {
+                //     lastEtag = Database.DocumentsStorage.ReadLastEtag(queryContext.Documents.Transaction.InnerTransaction);
+                // }
+
+                // GetLastDocumentEtag(queryContext.Documents.Transaction.InnerTransaction, c));
+            // }
+            if (options.IndexOptions != null && options.IndexOptions.WaitForIndexes)
+            {
+                //long lastEtag = ChangeVectorUtils.GetEtagById(information.LastChangeVector, Database.DbBase64Id);
+                await BatchHandlerProcessorForBulkDocs.WaitForIndexesAsync(Database, options.IndexOptions.WaitForIndexesTimeout.Value, options.IndexOptions.WaitForSpecificIndexes, throwOnTimeout: options.IndexOptions.ThrowOnTimeoutInWaitForIndexes, information.LastEtag, lastTombstoneEtag: 0, information.Collections, token.Token);
             }
         }
+
+        // await WaitForIndexesIfNeeded(options, collections);
 
         result.Total = progress.Total;
         return result;
     }
+
+    private class WaitForIndexesInformation
+    {
+        public HashSet<string> Collections { get; } = new();
+
+        public long LastEtag { get; set; }
+    }
+
 
     private static IndexQueryServerSide ConvertToOperationQuery(IndexQueryServerSide query, QueryOperationOptions options)
     {
@@ -235,12 +300,14 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
         private readonly bool _retrieveDetails;
         private readonly Func<T, IBulkOperationDetails> _getDetails;
         private readonly Action<T> _afterExecuted;
+        private readonly Func<T, (string Collection, long Etag)> _getDetailsForIndexing;
 
-        public BulkOperationCommand(T command, bool retrieveDetails, Func<T, IBulkOperationDetails> getDetails, Action<T> afterExecuted)
+        public BulkOperationCommand(T command, bool retrieveDetails, Func<T, IBulkOperationDetails> getDetails, Action<T> afterExecuted, Func<T, (string, long)> getDetailsForIndexing = null)
         {
             _command = command;
             _retrieveDetails = retrieveDetails;
             _getDetails = getDetails;
+            _getDetailsForIndexing = getDetailsForIndexing;
             _afterExecuted = afterExecuted;
         }
 
@@ -249,9 +316,12 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
             try
             {
                 var count = _command.Execute(context, recording);
-
+                //should take the collection here.
                 if (_retrieveDetails)
-                    RetrieveDetails?.Invoke(_getDetails(_command));
+                    RetrieveDetails?.Invoke(_getDetails(_command));// see what getDetails do and copy. v
+
+                if (_getDetailsForIndexing != null)//change the if indication
+                    RetrieveDetailsForIndexing?.Invoke(_getDetailsForIndexing(_command));
 
                 return count;
             }
@@ -272,5 +342,6 @@ public abstract class AbstractDatabaseQueryRunner : AbstractQueryRunner
         }
 
         public Action<IBulkOperationDetails> RetrieveDetails { private get; set; }
+        public Action<(string, long)> RetrieveDetailsForIndexing { private get; set; }
     }
 }

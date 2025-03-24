@@ -5,6 +5,7 @@
 //-----------------------------------------------------------------------
 
 using System;
+using Raven.Client.Exceptions.Documents.Analyzers;
 using Sparrow.Json;
 
 namespace Raven.Client.Documents.Operations
@@ -59,6 +60,9 @@ namespace Raven.Client.Documents.Operations
         public string ChangeVector;
 
         public string Collection;
+
+// TODO
+// the colection exists here
 
         public virtual void Dispose()
         {

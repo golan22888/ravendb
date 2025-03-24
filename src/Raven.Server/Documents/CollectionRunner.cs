@@ -8,6 +8,7 @@ using Raven.Client.Documents.Indexes;
 using Raven.Client.Documents.Operations;
 using Raven.Client.Util.RateLimiting;
 using Raven.Server.Documents.Handlers;
+using Raven.Server.Documents.Handlers.Processors.Batches;
 using Raven.Server.Documents.Patch;
 using Raven.Server.Documents.Queries;
 using Raven.Server.Documents.TransactionMerger.Commands;
@@ -46,10 +47,12 @@ namespace Raven.Server.Documents
         public Task<IOperationResult> ExecutePatch(string collectionName, long start, long take, CollectionOperationOptions options, PatchRequest patch,
             BlittableJsonReaderObject patchArgs, Action<IOperationProgress> onProgress, OperationCancelToken token)
         {
-            return ExecuteOperation(collectionName, start, take, options, Context, onProgress,
+            var opResult =  ExecuteOperation(collectionName, start, take, options, Context, onProgress,
                 key => new PatchDocumentCommand(Context, key, expectedChangeVector: null, skipPatchIfChangeVectorMismatch: false, patch: (patch, patchArgs),
                     patchIfMissing: (null, null), createIfMissing: null, identityPartsSeparator: Database.IdentityPartsSeparator, isTest: false, debugMode: false,
                     collectResultsNeeded: false, returnDocument: false, ignoreMaxStepsForScript: options.IgnoreMaxStepsForScript), token);
+
+            return opResult;
         }
 
         protected async Task<IOperationResult> ExecuteOperation(string collectionName, long start, long take, CollectionOperationOptions options, DocumentsOperationContext context,
@@ -153,6 +156,10 @@ namespace Raven.Server.Documents
                         break;
                 }
             }
+
+            // // HERE //
+            // await BatchHandlerProcessorForBulkDocs.WaitForIndexesAsync(Database, TimeSpan.FromMinutes(60), [], true, lastEtag, 0, [collectionName], token.Token);
+
 
             return new BulkOperationResult
             {

@@ -292,8 +292,8 @@ internal abstract class AbstractDatabaseChanges<TDatabaseConnectionState> : IDis
             _ms.SetLength(0);
             _semaphore.Release();
         }
-
-        if (await taskCompletionSource.Task.WaitWithTimeout(TimeSpan.FromSeconds(15)).ConfigureAwait(false) == false)
+        //TODO: change it to 15 secs.
+        if (await taskCompletionSource.Task.WaitWithTimeout(TimeSpan.FromSeconds(1500)).ConfigureAwait(false) == false)
         {
             throw new TimeoutException("Did not get a confirmation for command #" + currentCommandId);
         }

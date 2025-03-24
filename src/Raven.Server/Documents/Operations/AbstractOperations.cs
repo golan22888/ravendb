@@ -60,7 +60,8 @@ public abstract class AbstractOperations<TOperation> : ILowMemoryHandler
         Monitor.Enter(locker);
         try
         {
-            operation.Task = Task.Run(() => taskFactory(ProgressNotification));
+            operation.Task = Task.Run(() => 
+                taskFactory(ProgressNotification));
             operation.Task.ContinueWith(ContinuationFunction);
             Active.TryAdd(id, operation);
 

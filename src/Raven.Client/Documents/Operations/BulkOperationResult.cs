@@ -66,9 +66,12 @@ namespace Raven.Client.Documents.Operations
 
         public sealed class PatchDetails : IBulkOperationDetails
         {
+            //this is for statistic usage
             public string Id { get; set; }
             public string ChangeVector { get; set; }
             public PatchStatus Status { get; set; }
+            //should be saved on the server only.
+            // public string CollectionName { get; set; }
 
             public DynamicJsonValue ToJson()
             {

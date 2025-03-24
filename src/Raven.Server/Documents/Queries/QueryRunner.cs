@@ -1,18 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Raven.Client.Documents.Operations;
 using Raven.Client.Documents.Queries;
 using Raven.Client.Exceptions;
+using Raven.Server.Documents.Handlers.Processors.Batches;
 using Raven.Server.Documents.Indexes;
 using Raven.Server.Documents.Queries.Dynamic;
 using Raven.Server.Documents.Queries.Facets;
 using Raven.Server.Documents.Queries.Suggestions;
 using Raven.Server.Documents.Queries.Timings;
 using Raven.Server.ServerWide;
+using Raven.Server.Utils;
+using Raven.Server.Web;
 using Sparrow.Json;
 using Index = Raven.Server.Documents.Indexes.Index;
 using PatchRequest = Raven.Server.Documents.Patch.PatchRequest;
@@ -402,8 +406,35 @@ namespace Raven.Server.Documents.Queries
                     if (Database.ForTestingPurposes?.DelayQueryByPatch != null)
                         await Database.ForTestingPurposes.DelayQueryByPatch.WaitAsync(token.Token);
 
-                    return await GetRunner(query).ExecutePatchQuery(query, options, patch, patchArgs, queryContext, onProgress, token)
+                    var patchResult = await GetRunner(query).ExecutePatchQuery(query, options, patch, patchArgs, queryContext, onProgress, token)
                                                  .ConfigureAwait(false);
+
+
+                    // call abstract WaitForIndexIfNeeded
+
+                    //do all that if part inside the patch query
+                    var indexOptions = options.IndexOptions;
+                    if (indexOptions != null && patchResult is BulkOperationResult bor)
+                    {
+                        // //find a way to do that directly
+                        // var collections = new HashSet<string>();
+                        // foreach (var shem in bor.Details)
+                        // {
+                        //     if (shem is not BulkOperationResult.PatchDetails pd1)
+                        //         continue;
+                        //     collections.Add(pd1.CollectionName);
+                        // }
+                        //
+                        // if (bor.Details.Last() is BulkOperationResult.PatchDetails pd)
+                        // {
+                        //     var cv = pd.ChangeVector;
+                        //     long lastEtag = ChangeVectorUtils.GetEtagById(cv, Database.DbBase64Id);
+                        //     await BatchHandlerProcessorForBulkDocs.WaitForIndexesAsync(Database, TimeSpan.FromMinutes(60), [], true, lastEtag, 0, collections,
+                        //         token.Token);
+                        // }
+                    }
+
+                    return patchResult;
                 }
                 catch (ObjectDisposedException e)
                 {

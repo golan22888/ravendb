@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using Jint;
-using Raven.Client;
+using Microsoft.VisualBasic;
 using Raven.Client.Documents.Changes;
 using Raven.Client.Documents.Commands.Batches;
 using Raven.Client.Documents.Operations;
@@ -11,10 +11,12 @@ using Raven.Server.Documents.Handlers.Batches;
 using Raven.Server.Documents.TransactionMerger.Commands;
 using Raven.Server.Extensions;
 using Raven.Server.ServerWide.Context;
+using Raven.Server.Smuggler.Migration;
 using Raven.Server.Utils;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Voron;
+using Constants = Raven.Client.Constants;
 
 namespace Raven.Server.Documents.Patch
 {
@@ -162,7 +164,7 @@ namespace Raven.Server.Documents.Patch
                 {
                     Status = PatchStatus.NotModified,
                     OriginalDocument = _isTest == false ? null : originalDocument?.Data?.Clone(_externalContext ?? context),
-                    ModifiedDocument = ModifiedDocumentRequired == false ? null : modifiedDoc?.Clone(_externalContext ?? context)
+                    ModifiedDocument = ModifiedDocumentRequired == false ? null : modifiedDoc?.Clone(_externalContext ?? context),
                 };
 
                 if (modifiedDoc == null)
@@ -170,7 +172,9 @@ namespace Raven.Server.Documents.Patch
                     result.Status = PatchStatus.Skipped;
                     return result;
                 }
-
+                
+                // Collection = CollectionName.GetCollectionName(modifiedDoc);
+             
                 if (run?.RefreshOriginalDocument == true)
                 {
                     originalDocument?.Dispose();
@@ -233,6 +237,7 @@ namespace Raven.Server.Documents.Patch
                     result.Collection = putResult.Value.Collection.Name;
                     result.LastModified = putResult.Value.LastModified;
                 }
+
 
                 if (_isTest && result.Status == PatchStatus.NotModified)
                 {
@@ -447,6 +452,7 @@ namespace Raven.Server.Documents.Patch
         private bool _isInitialized;
 
         public PatchResult PatchResult { get; private set; }
+        
 
         public PatchDocumentCommand(
             JsonOperationContext context,
