@@ -271,16 +271,20 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
     public bool TryGetDetailsOfRecentToolCall(AiAgentConfiguration configuration, out List<ExceededTokenThresholdDetails.ToolCallDetails> toolCalls)
     {
         toolCalls = null;
+        
+        if (Messages[^1].TryGet(ChatCompletionClient.Constants.ResponseFields.ToolCalls, out BlittableJsonReaderArray r))
+            return false;
+
         for (var i = Messages.Count - 1; i >= 0; i--)
         {
             var m = Messages[i];
 
-            if (m.TryGet(ChatCompletionClient.Constants.RequestFields.Role, out string r) && r == ChatCompletionClient.Constants.RequestFields.RoleUserValue)
+            if (m.TryGet(ChatCompletionClient.Constants.RequestFields.Role, out string rs) && rs == ChatCompletionClient.Constants.RequestFields.RoleUserValue)
             {
                 break;
             }
 
-            if (r == ChatCompletionClient.Constants.RequestFields.RoleAssistantValue && m.TryGet(ChatCompletionClient.Constants.ResponseFields.ToolCalls, out BlittableJsonReaderArray toolCallsArray))
+            if (rs == ChatCompletionClient.Constants.RequestFields.RoleAssistantValue && m.TryGet(ChatCompletionClient.Constants.ResponseFields.ToolCalls, out BlittableJsonReaderArray toolCallsArray))
             {
                 foreach (BlittableJsonReaderObject call in toolCallsArray)
                 {
@@ -289,19 +293,7 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
                     function.TryGet(ChatCompletionClient.Constants.JsonSchemaFields.Name, out string name);
                     function.TryGet(ChatCompletionClient.Constants.JsonSchemaFields.Arguments, out string arguments);
 
-                    ToolType toolType;
-                    if (configuration.FindAction(name) != null)
-                    {
-                        toolType = ToolType.Action;
-                    }
-                    else if (configuration.FindQuery(name) != null)
-                    {
-                        toolType = ToolType.Query;
-                    }
-                    else
-                    {
-                        toolType = ToolType.Unknown;
-                    }
+                    ToolType toolType = GetToolType(configuration, name);
 
                     toolCalls ??= new List<ExceededTokenThresholdDetails.ToolCallDetails>();
 
@@ -317,5 +309,14 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
         }
 
         return toolCalls?.Count > 0;
+    }
+
+    private static ToolType GetToolType(AiAgentConfiguration configuration, string name)
+    {
+        if (configuration.FindAction(name) != null)
+        {
+            return ToolType.Action;
+        }
+        return configuration.FindQuery(name) != null ? ToolType.Query : ToolType.Unknown;
     }
 }
