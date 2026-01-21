@@ -223,7 +223,7 @@ public abstract class AbstractBatchCommandsReader<TBatchCommand, TOperationConte
             MediaTypeHeaderValue.Parse(contentType),
             MultipartRequestHelper.MultipartBoundaryLengthLimit);
         var reader = new MultipartReader(boundary, stream);
-        for (var i = 0; i < int.MaxValue; i++)
+        for (var i = 0; ; i++)
         {
             var section = await reader.ReadNextSectionAsync(token).ConfigureAwait(false);
             if (section == null)

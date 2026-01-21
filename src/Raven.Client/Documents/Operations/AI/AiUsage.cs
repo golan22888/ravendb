@@ -58,7 +58,7 @@ public class AiUsage : IDynamicJson
             TotalTokens = Math.Max(current.TotalTokens - previousTotalWithoutReasoning, 0), // in case the model gives us crappy results and current.TotalTokens - previousTotalWithoutReasoning < 0
             CachedTokens = current.CachedTokens, // we don't want to subtract cached tokens, as they are only for the last response
             CompletionTokens = current.CompletionTokens, // we don't want to subtract completion tokens, as they are only for the last response
-            ReasoningTokens = current.ReasoningTokens
+            ReasoningTokens = current.ReasoningTokens,
         };
     }
 

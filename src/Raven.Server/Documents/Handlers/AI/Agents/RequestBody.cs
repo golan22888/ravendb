@@ -1,8 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Raven.Client.Documents.AI;
+using Raven.Client.Documents.Commands.Batches;
 using Raven.Server.Documents.ETL.Providers.AI;
+using Raven.Server.Documents.Handlers.Batches.Commands;
 using Sparrow.Json;
+using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.Handlers.AI.Agents;
 
@@ -15,6 +19,8 @@ public class RequestBody
     public BlittableJsonReaderArray ArtificialActions { get; set; }
     public AiConversationCreationOptions CreationOptions { get; set; }
 
+    public MergedBatchCommand AttachmentCommands { get; set; }
+
     public List<AiAttachment> Attachments { get; set; }
 
     public object Content
@@ -26,17 +32,27 @@ public class RequestBody
                 return array;
             }
 
-            return UserPrompt?.ToString();
+            var promptText =  UserPrompt?.ToString();
+
+            if (string.IsNullOrEmpty(promptText) && Attachments != null && Attachments.Count > 0)
+                return string.Empty;
+
+            return promptText;
         }
     }
 
-    public void ValidateForStart()
+    public void ValidateForStart()//todo !!!!!!!!!!!!!!!!
     {
-        if (HasUserPrompt(UserPrompt)== false)
-            throw new ArgumentException("User prompt is missing.");
+        // return;
+        bool hasPrompt = HasUserPrompt(UserPrompt);
+        bool hasAttachments = Attachments != null && Attachments.Count > 0;
+        // bool hasCommands = AttachmentCommands != null && AttachmentCommands.Count > 0;
 
-        if (Parameters == null)
-            throw new ArgumentException(nameof(Parameters));
+        if (hasPrompt == false && hasAttachments == false /*&& hasCommands == false*/)
+            throw new ArgumentException("User prompt or attachments are missing.");
+
+        // if (Parameters == null)
+        //     throw new ArgumentException(nameof(Parameters));
     }
 
     public void ValidateForResume()
@@ -69,12 +85,45 @@ public class RequestBody
                         return false;
                     }
 
-                    if (obj.TryGet(AiMessagePromptTypes.Text, out string textValue) == false || string.IsNullOrEmpty(textValue))
+                    if (obj.TryGet(AiMessagePromptFields.Type, out string typeValue) == false)
                         return false;
+
+                    if (typeValue == AiMessagePromptTypes.Text)
+                    {
+                        // For text parts, the text field must exist and not be empty
+                        if (obj.TryGet(AiMessagePromptFields.Text, out string textValue) == false || string.IsNullOrEmpty(textValue))
+                            return false;
+
+                        continue;
+                    }
+
+                    if (typeValue == AiMessagePromptFields.Image)
+                    {
+                        // Image parts are valid if the discriminator matches
+                        continue;
+                    }
+
+                    return false;
                 }
                 return true;
             default:
                 return false;
         }
+    }
+
+    public DynamicJsonValue ToJson()
+    {
+        var json = new DynamicJsonValue
+        {
+            [nameof(Parameters)] = Parameters,
+            [nameof(UserPrompt)] = UserPrompt,
+            [nameof(ActionResponses)] = ActionResponses,
+            [nameof(ArtificialActions)] = ArtificialActions,
+            [nameof(CreationOptions)] = CreationOptions?.ToJson(),
+            // Mapping the list of attachments using their own ToJson() implementation
+            [nameof(Attachments)] = Attachments != null ? new DynamicJsonArray(Attachments.Select(x => x.ToJson())) : null
+        };
+
+        return json;
     }
 }

@@ -1,14 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using JetBrains.Annotations;
+using NuGet.Protocol;
 using Raven.Client;
+using Raven.Client.Documents.AI;
+using Raven.Client.Documents.Attachments;
 using Raven.Client.Documents.Operations.AI;
 using Raven.Client.Documents.Operations.AI.Agents;
 using Raven.Client.Json.Serialization;
 using Raven.Server.Documents.AI;
+using Raven.Server.Documents.ETL.Providers.AI;
+using Raven.Server.Documents.Schemas;
 using Raven.Server.NotificationCenter.Notifications.Details;
+using Raven.Server.ServerWide.Context;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 using Sparrow.Server.Json.Sync;
@@ -23,6 +31,8 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
     public List<BlittableJsonReaderObject> Messages = [];
     public List<string> LinkedConversations = [];
     public Dictionary<string, AiAgentActionRequest> OpenActionCalls = [];
+    public List<AiAttachment> Attachments = new();
+
     public AiUsage TotalUsage = new AiUsage();
     public AiUsage CurrentUsage = new AiUsage();
     public string ChangeVector;
@@ -212,6 +222,13 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
 
     public DynamicJsonValue ToJson()
     {
+
+        var attachments = new DynamicJsonArray();
+        foreach (var attachment in Attachments)
+        {
+            attachments.Add(attachment.ToJson());
+        }
+
         return new DynamicJsonValue
         {
             [nameof(Agent)] = Agent,
@@ -272,7 +289,7 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
             openTools.Add(callId, call);
         }
 
-        var conversation =  new ConversationDocument(agent, parameters?.CloneOnTheSameContext())
+        var conversation = new ConversationDocument(agent, parameters?.CloneOnTheSameContext())
         {
             Id = id,
             Messages = messages.Items.Select(m => ((BlittableJsonReaderObject)m).CloneOnTheSameContext()).ToList(),
@@ -285,10 +302,30 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
             RemainingToolIterations = remainingToolIterations
         };
 
+        if (document.TryGet(nameof(Attachments), out BlittableJsonReaderArray attachments))
+        {
+            foreach (var attachment in attachments)
+            {
+                if (attachment is BlittableJsonReaderObject b)
+                {
+                    b.TryGet(nameof(AiAttachment.Name), out string name);
+                    b.TryGet(nameof(AiAttachment.Type), out string type);
+                    b.TryGet(nameof(AiAttachment.Data), out string data);
+                    b.TryGet(nameof(AiAttachment.Source), out string sourceDocId);
+
+                    if (b.TryGet(nameof(AiAttachment.Source), out string sourceStr) == false || Enum.TryParse(sourceStr, out AiAttachmentSource source) == false)
+                        source = AiAttachmentSource.FromAttachment;
+
+                    conversation.Attachments.Add(new AiAttachment(name, type, source, data));
+                }
+            }
+        }
+
         if (document.TryGet(nameof(CurrentUsage), out BlittableJsonReaderObject currentUsageBlittable))
         {
             conversation.CurrentUsage = JsonDeserializationClient.AiUsage(currentUsageBlittable);
         }
+
         return conversation;
     }
 
@@ -314,7 +351,14 @@ public class ConversationDocument([NotNull] string agent, BlittableJsonReaderObj
             };
             tools.Add(context.ReadObject(tool, "tool"));
         }
+        configuration.Actions.Add(new AiAgentToolAction
+        {
+            Name = "__RetrieveAttachment",
+            Description =
+                $"Retrieves content for one or more attachments by their names. Use this to re-read files. IMPORTANT: To retrieve multiple files, pass the attachments names as an array to this tool.", /*Available attachments: {string.Join(Environment.NewLine, persistedAttachmentNames)}",*/
 
+            ParametersSampleObject = "{\"names\": [\"List with the names of the attachments\"]}",
+        });
         foreach (var a in configuration.Actions ?? [])
         {
             string paramsSchema = ChatCompletionClient.GetSchemaForTool(a.ParametersSchema, a.ParametersSampleObject);
