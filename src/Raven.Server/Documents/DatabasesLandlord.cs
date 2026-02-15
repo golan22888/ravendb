@@ -489,7 +489,7 @@ namespace Raven.Server.Documents
             {
                 removeLockAndReturn?.Dispose();
             }
-            NotifyLeaderAboutRemoval(dbName, databaseId);
+            NotifyLeaderAboutRemoval(dbName, databaseId, requestId: databaseId);
         }
 
         [DoesNotReturn]
@@ -498,9 +498,8 @@ namespace Raven.Server.Documents
             throw new InvalidOperationException($"Unknown cluster database change type: {type}");
         }
 
-        private void NotifyLeaderAboutRemoval(string dbName, string databaseId, string requestId = null)
+        private void NotifyLeaderAboutRemoval(string dbName, string databaseId, string requestId)
         {
-            requestId ??= RaftIdGenerator.NewId();
             var cmd = new RemoveNodeFromDatabaseCommand(dbName, databaseId, requestId)
             {
                 NodeTag = _serverStore.NodeTag

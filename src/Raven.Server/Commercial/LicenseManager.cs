@@ -1059,7 +1059,7 @@ namespace Raven.Server.Commercial
                                          $"Total utilized cores: {licenseLimits.TotalUtilizedCores}. " +
                                          $"Max licensed cores: {LicenseStatus.MaxCores}";
                     }
-                    Console.WriteLine(basicMessage + " " + licenseMessage);
+                    // Console.WriteLine(basicMessage + " " + licenseMessage);
                 }
 
                 return true;
