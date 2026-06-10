@@ -571,6 +571,8 @@ namespace Raven.Client
 
                 internal const string GenAiHashes = "@gen-ai-hashes";
 
+                internal const string GenAiRetry = "@gen-ai-retry";
+
                 internal sealed class Sharding
                 {
                     internal const string ShardNumber = "@shard-number";

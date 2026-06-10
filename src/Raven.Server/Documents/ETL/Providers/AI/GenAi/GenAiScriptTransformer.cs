@@ -217,6 +217,14 @@ var ai = new AI();
             }
             
             string hash = CalculateHash(context, attachmentsHashes);
+
+            // a context pending a not-yet-due retry is excluded from this batch (not sent, and not recorded as done)
+            if (IsPendingRetry(hash, _configuration.Identifier, Current.Document, Context.DocumentDatabase.Time.GetUtcNow()))
+            {
+                context.Dispose();
+                continue;
+            }
+
             var isCached = ShouldSendContext(hash, _configuration.Identifier, Current.Document) == false;
 
             if (isCached)
@@ -337,6 +345,18 @@ var ai = new AI();
         }
 
         return true; // hash not found, should send
+    }
+
+    // True while this context has a retry entry whose NextRetry is in the future; once it passes, it is sent again.
+    private static bool IsPendingRetry(string hash, string taskIdentifier, Document doc, DateTime now)
+    {
+        if (doc.Data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata) == false ||
+            metadata.TryGet(Constants.Documents.Metadata.GenAiRetry, out BlittableJsonReaderObject retrySection) == false ||
+            retrySection.TryGet(taskIdentifier, out BlittableJsonReaderObject retryByHash) == false ||
+            retryByHash.TryGet(hash, out BlittableJsonReaderObject entry) == false)
+            return false;
+
+        return entry.TryGet(GenAiRetryFields.NextRetry, out DateTime nextRetry) && now < nextRetry;
     }
 
     private static unsafe byte[] GetInitialHash(GenAiConfiguration cfg)

@@ -6,6 +6,15 @@ using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.ETL.Providers.AI.GenAi;
 
+// @gen-ai-retry entry field names, shared between the writer (GenAiBatchPatchCommand) and reader (GenAiScriptTransformer).
+internal static class GenAiRetryFields
+{
+    public const string Reason = "Reason";
+    public const string Error = "Error";
+    public const string Attempt = "Attempt";
+    public const string NextRetry = "NextRetry";
+}
+
 public class GenAiResultItem
 {
     public ModelOutput ModelOutput { get; set; }
@@ -15,6 +24,12 @@ public class GenAiResultItem
     public string DocumentId { get; set; }
 
     internal bool UpdateHash { get; set; } = true;
+
+    internal bool ShouldRetry { get; set; }
+
+    internal string RetryReason { get; set; }
+
+    internal string RetryError { get; set; }
 
     public DynamicJsonValue ToJson()
     {
