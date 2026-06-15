@@ -116,8 +116,177 @@ internal sealed class GenAiBatchPatchCommand : DocumentMergedTransactionCommand
                 UpdateHashesInMetadata(id, doc.Data, _taskIdentifier, allHashes, context);
             }
 
+            WriteRetries(context);
+
             return statsScope.TotalUpdates;
         }
+    }
+
+    private const int MaxRetryBackoffMinutes = 60;
+
+    private sealed record RetryEntry(string Reason, string Error, int Attempt, DateTime NextRetry);
+
+    private void WriteRetries(DocumentsOperationContext context)
+    {
+        var byDoc = new Dictionary<string, (List<(string Hash, string Reason, string Error)> Upserts, List<string> Clears)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _items)
+        {
+            if (item.ShouldRetry == false && item.ModelOutput == null)
+                continue;
+
+            if (byDoc.TryGetValue(item.DocumentId, out var work) == false)
+                byDoc[item.DocumentId] = work = (new List<(string, string, string)>(), new List<string>());
+
+            if (item.ShouldRetry)
+                work.Upserts.Add((item.ContextOutput.AiHash, item.RetryReason, item.RetryError));
+            else
+                work.Clears.Add(item.ContextOutput.AiHash);
+        }
+
+        if (byDoc.Count == 0)
+            return;
+
+        var now = context.DocumentDatabase.Time.GetUtcNow();
+        foreach (var (docId, work) in byDoc)
+            WriteRetryForDocument(context, docId, work.Upserts, work.Clears, now);
+    }
+
+    private void WriteRetryForDocument(DocumentsOperationContext context, string docId,
+        List<(string Hash, string Reason, string Error)> upserts, List<string> clears, DateTime now)
+    {
+        var doc = context.DocumentDatabase.DocumentsStorage.Get(context, docId);
+        if (doc == null)
+            return;
+
+        var data = doc.Data.CloneOnTheSameContext();
+
+        var retryByIdentifier = ReadRetry(data);
+        if (retryByIdentifier.TryGetValue(_taskIdentifier, out var ours) == false)
+            ours = new Dictionary<string, RetryEntry>(StringComparer.Ordinal);
+
+        var changed = false;
+        foreach (var hash in clears)
+        {
+            if (ours.Remove(hash))
+                changed = true;
+        }
+        foreach (var (hash, reason, error) in upserts)
+        {
+            var attempt = (ours.TryGetValue(hash, out var existing) ? existing.Attempt : 0) + 1;
+            ours[hash] = new RetryEntry(reason, error, attempt, now.Add(BackoffFor(attempt)));
+            changed = true;
+        }
+
+        if (changed == false)
+            return;
+
+        if (ours.Count == 0)
+            retryByIdentifier.Remove(_taskIdentifier);
+        else
+            retryByIdentifier[_taskIdentifier] = ours;
+
+        WriteRetryAndRefresh(context, docId, data, retryByIdentifier);
+    }
+
+    private static TimeSpan BackoffFor(int attempt)
+    {
+        var minutes = attempt >= 7 ? MaxRetryBackoffMinutes : Math.Min(MaxRetryBackoffMinutes, 1 << (attempt - 1));
+        return TimeSpan.FromMinutes(minutes);
+    }
+
+    private static Dictionary<string, Dictionary<string, RetryEntry>> ReadRetry(BlittableJsonReaderObject data)
+    {
+        var result = new Dictionary<string, Dictionary<string, RetryEntry>>(StringComparer.Ordinal);
+        if (data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata) == false ||
+            metadata.TryGet(Constants.Documents.Metadata.GenAiRetry, out BlittableJsonReaderObject retry) == false)
+            return result;
+
+        foreach (var identifier in retry.GetPropertyNames())
+        {
+            if (retry.TryGet(identifier, out BlittableJsonReaderObject byHash) == false)
+                continue;
+
+            var entries = new Dictionary<string, RetryEntry>(StringComparer.Ordinal);
+            foreach (var hash in byHash.GetPropertyNames())
+            {
+                if (byHash.TryGet(hash, out BlittableJsonReaderObject entry) == false)
+                    continue;
+
+                entry.TryGet(GenAiRetryFields.Reason, out string reason);
+                entry.TryGet(GenAiRetryFields.Error, out string error);
+                entry.TryGet(GenAiRetryFields.Attempt, out int attempt);
+                entry.TryGet(GenAiRetryFields.NextRetry, out DateTime nextRetry);
+                entries[hash] = new RetryEntry(reason, error, attempt, nextRetry);
+            }
+
+            result[identifier] = entries;
+        }
+
+        return result;
+    }
+
+    private static void WriteRetryAndRefresh(DocumentsOperationContext context, string id, BlittableJsonReaderObject data,
+        Dictionary<string, Dictionary<string, RetryEntry>> retryByIdentifier)
+    {
+        data.TryGet(Constants.Documents.Metadata.Key, out BlittableJsonReaderObject metadata);
+
+        DynamicJsonValue retryJson = null;
+        DateTime? earliest = null;
+        foreach (var (identifier, entries) in retryByIdentifier)
+        {
+            if (entries.Count == 0)
+                continue;
+
+            var byHash = new DynamicJsonValue();
+            foreach (var (hash, e) in entries)
+            {
+                byHash[hash] = new DynamicJsonValue
+                {
+                    [GenAiRetryFields.Reason] = e.Reason,
+                    [GenAiRetryFields.Error] = e.Error,
+                    [GenAiRetryFields.Attempt] = e.Attempt,
+                    [GenAiRetryFields.NextRetry] = e.NextRetry
+                };
+
+                if (earliest == null || e.NextRetry < earliest.Value)
+                    earliest = e.NextRetry;
+            }
+
+            (retryJson ??= new DynamicJsonValue())[identifier] = byHash;
+        }
+
+        // @refresh is always set to our earliest NextRetry (never kept at an earlier value): it is one-shot and must
+        // fire at NextRetry so the context is due when the document is re-fed, otherwise the retry is stranded.
+        if (metadata == null)
+        {
+            var fresh = new DynamicJsonValue();
+            if (retryJson != null)
+                fresh[Constants.Documents.Metadata.GenAiRetry] = retryJson;
+            if (earliest != null)
+                fresh[Constants.Documents.Metadata.Refresh] = earliest.Value;
+
+            data.Modifications = new DynamicJsonValue(data) { [Constants.Documents.Metadata.Key] = fresh };
+        }
+        else
+        {
+            metadata.Modifications = new DynamicJsonValue(metadata);
+            if (retryJson != null)
+                metadata.Modifications[Constants.Documents.Metadata.GenAiRetry] = retryJson;
+            else
+                metadata.Modifications.Remove(Constants.Documents.Metadata.GenAiRetry);
+
+            if (earliest != null)
+                metadata.Modifications[Constants.Documents.Metadata.Refresh] = earliest.Value;
+
+            data.Modifications = new DynamicJsonValue(data) { [Constants.Documents.Metadata.Key] = metadata };
+        }
+
+        using (var old = data)
+        {
+            data = context.ReadObject(old, id);
+        }
+
+        context.DocumentDatabase.DocumentsStorage.Put(context, id, expectedChangeVector: null, data);
     }
 
     private static BlittableJsonReaderObject CreatePatchArgs(DocumentsOperationContext context, GenAiResultItem item)

@@ -157,10 +157,9 @@ public sealed class GenAiTask : EtlProcess<GenAiItem, GenAiScriptResult, GenAiCo
         // Prevent database unloading during long-running AI operations
         using (Database.PreventFromUnloadingByIdleOperations())
         using (EnterLoadStep(TaskErrorStep.ModelInference))
-        using (var cts = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken))
         {
-            cts.CancelAfter(Database.Configuration.Ai.GenAiSendToModelTimeout.AsTimeSpan);
-            exceptions = SendToModel(results, context, scope, cts.Token);
+            // the timeout is applied per request inside SendToModel, not across the whole batch
+            exceptions = SendToModel(results, context, scope, CancellationToken);
         }
 
         using (EnterLoadStep(TaskErrorStep.Persistence))
@@ -186,78 +185,94 @@ public sealed class GenAiTask : EtlProcess<GenAiItem, GenAiScriptResult, GenAiCo
         return results.Count;
     }
 
-    private List<Exception> SendToModel(List<GenAiResultItem> items, JsonOperationContext context, GenAiStatsScope scope, CancellationToken batchToken)
+    private List<Exception> SendToModel(List<GenAiResultItem> items, JsonOperationContext context, GenAiStatsScope scope, CancellationToken shutdownToken)
     {
         using (var statsScope = scope.For(GenAiOperations.LoadToModel))
         {
+            var timeout = Database.Configuration.Ai.GenAiSendToModelTimeout.AsTimeSpan;
             List<Task<GenAiHandlerResult>> tasks = [];
             Task[] executingTasks = new Task[Math.Max(1, _maxConcurrency)];
             Array.Fill(executingTasks, Task.CompletedTask);
             List<GenAiResultItem> itemsSentToModel = [];
-
-            foreach (var item in items)
-            {
-                statsScope.NumberOfContextObjects++;
-
-                if (item.ContextOutput.IsCached)
-                {
-                    statsScope.TotalCachedContexts++;
-                    continue; // no change, can skip
-                }
-
-                // this is how we ensure that we don't have too many outstanding tasks 
-                var idx = Task.WaitAny(executingTasks, CancellationToken);
-                statsScope.TotalSentToModel++;
-
-                string json = item.ContextOutput.Context.ToString();
-                Task<GenAiHandlerResult> task;
-
-                var agentConfiguration = CreateAgentConfiguration(context, item);
-                var handler = new GenAiConversationHandler(Database.ServerStore, Database, Configuration)
-                {
-                    // GenAI task uses full access
-                    Authentication = Database.ServerStore.Server.AuthenticateConnectionCertificate(Database.ServerStore.Server.Certificate.ClientCertificate, $"GenAI access for '{Name}'")
-                };
-
-                handler.Initialize(agentConfiguration, $"{Configuration.Identifier}/{item.DocumentId}/", new RequestBody
-                {
-                    Parameters = item.ContextOutput.Context.CloneOnTheSameContext(), // we need that to be a root blittable, so we can use the concurrent read method
-                    CreationOptions = new AiConversationCreationOptions
-                    {
-                        ExpirationInSec = Configuration.ExpirationInSec
-                    },
-                    UserPrompt = json,
-                    Attachments = item.ContextOutput.Attachments
-                }, changeVector: null);
-
-                handler.SetClient(_chatCompletionClient);
-                try
-                {
-                    task = handler.HandleRequest(batchToken);
-                }
-                catch (Exception e)
-                {
-                    // if we failed to _start_, we want to handle it in the same manner
-                    // and deal with the error in ProcessModelResults
-                    task = Task.FromException<GenAiHandlerResult>(e);
-                }
-
-                itemsSentToModel.Add(item);
-                tasks.Add(task);
-                executingTasks[idx] = task;
-            }
+            // one cancellation token per request, so each document gets its own timeout window
+            List<OperationCancelToken> requestTokens = [];
 
             try
             {
-                Task.WaitAll(executingTasks, CancellationToken); // only the pending tasks remain here
-            }
-            catch (Exception)
-            {
-                // explicitly ignoring this, since we'll handle the error 
-                // in ProcessModelResults
-            }
+                foreach (var item in items)
+                {
+                    statsScope.NumberOfContextObjects++;
 
-            return ProcessModelResults(itemsSentToModel, context, tasks, statsScope);
+                    if (item.ContextOutput.IsCached)
+                    {
+                        statsScope.TotalCachedContexts++;
+                        continue; // no change, can skip
+                    }
+
+                    // this is how we ensure that we don't have too many outstanding tasks
+                    var idx = Task.WaitAny(executingTasks, shutdownToken);
+                    statsScope.TotalSentToModel++;
+
+                    string json = item.ContextOutput.Context.ToString();
+                    Task<GenAiHandlerResult> task;
+
+                    var agentConfiguration = CreateAgentConfiguration(context, item);
+                    var handler = new GenAiConversationHandler(Database.ServerStore, Database, Configuration)
+                    {
+                        // GenAI task uses full access
+                        Authentication = Database.ServerStore.Server.AuthenticateConnectionCertificate(Database.ServerStore.Server.Certificate.ClientCertificate, $"GenAI access for '{Name}'")
+                    };
+
+                    handler.Initialize(agentConfiguration, $"{Configuration.Identifier}/{item.DocumentId}/", new RequestBody
+                    {
+                        Parameters = item.ContextOutput.Context.CloneOnTheSameContext(), // we need that to be a root blittable, so we can use the concurrent read method
+                        CreationOptions = new AiConversationCreationOptions
+                        {
+                            ExpirationInSec = Configuration.ExpirationInSec
+                        },
+                        UserPrompt = json,
+                        Attachments = item.ContextOutput.Attachments
+                    }, changeVector: null);
+
+                    handler.SetClient(_chatCompletionClient);
+
+                    // this document's own timeout window, started after acquiring a concurrency slot
+                    var itemToken = new OperationCancelToken(timeout, shutdownToken);
+                    requestTokens.Add(itemToken);
+
+                    try
+                    {
+                        task = handler.HandleRequest(itemToken.Token);
+                    }
+                    catch (Exception e)
+                    {
+                        // if we failed to _start_, we want to handle it in the same manner
+                        // and deal with the error in ProcessModelResults
+                        task = Task.FromException<GenAiHandlerResult>(e);
+                    }
+
+                    itemsSentToModel.Add(item);
+                    tasks.Add(task);
+                    executingTasks[idx] = task;
+                }
+
+                try
+                {
+                    Task.WaitAll(executingTasks, shutdownToken); // only the pending tasks remain here
+                }
+                catch (Exception)
+                {
+                    // explicitly ignoring this, since we'll handle the error
+                    // in ProcessModelResults
+                }
+
+                return ProcessModelResults(itemsSentToModel, context, tasks, statsScope);
+            }
+            finally
+            {
+                foreach (var token in requestTokens)
+                    token.Dispose();
+            }
         }
     }
 
@@ -365,21 +380,31 @@ public sealed class GenAiTask : EtlProcess<GenAiItem, GenAiScriptResult, GenAiCo
             if (Logger.IsWarnEnabled)
                 Logger.Warn(msg);
 
+            // Our own per-request timeout (OperationCanceledException while the process token isn't cancelled - so not a
+            // shutdown), too-many-tokens and refusal are scheduled for a deferred retry rather than looped or given up.
+            // ScheduleRetry returns null (no exception), so the batch still succeeds and the task keeps advancing.
             switch (singleEx)
             {
-                // this item cannot be processed, because it has too many items, and retrying isn't going to change that
+                case OperationCanceledException when CancellationToken.IsCancellationRequested == false:
+                    return ScheduleRetry("Timeout");
                 case TooManyTokensException:
-                // the model refused to answer about this item, and is unlikely to change its mind    
+                    return ScheduleRetry("TooManyTokens");
                 case RefusedToAnswerException:
-                    // in this case, we _intentionally_ want to update the hash so we will _not_ try to update this known bad
-                    // item again in the future.
-                    item.UpdateHash = true;
-                    return null;
+                    return ScheduleRetry("Refused");
                 default:
-                    // something bad happened, but this isn't the fault of this item (run out of rate limit, TCP error, etc.)
+                    // something bad happened, but this isn't the fault of this item (rate limit, TCP error, etc.)
                     // we will _not_ update the hash in this case, so we *will* reprocess this item the next time
                     item.UpdateHash = false;
                     return singleEx;
+            }
+
+            Exception ScheduleRetry(string reason)
+            {
+                item.UpdateHash = false;
+                item.ShouldRetry = true;
+                item.RetryReason = reason;
+                item.RetryError = singleEx?.Message;
+                return null;
             }
         }
     }
