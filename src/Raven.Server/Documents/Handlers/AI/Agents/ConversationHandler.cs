@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
@@ -368,8 +369,6 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
         };
     }
 
-
-
     private ChatCompletionClient _client;
 
     public void SetClient([NotNull] ChatCompletionClient client) => _client = client;
@@ -381,6 +380,51 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
 
         var connection = GetAiConnectionString();
         return _client = ChatCompletionClient.CreateChatCompletionClient(database.DocumentsStorage.ContextPool, connection);
+    }
+
+    internal List<AiToolDescriptor> BuildToolDescriptors(JsonOperationContext context, AiAgentConfiguration configuration)
+    {
+        // Runs more than once per request (Talker.Init, then SummarizeAsync) - the built-in must not be added twice.
+        if (_persistedAttachmentsNames is { Count: > 0 } &&
+            configuration.Actions.Any(a => a.Name == ChatCompletionClient.Constants.ToolNames.RetrieveAttachment) == false)
+        {
+            configuration.Actions.Add(new AiAgentToolAction
+            {
+                Name = ChatCompletionClient.Constants.ToolNames.RetrieveAttachment,
+                Description =
+                    $"Retrieves one or more attachments by their names. Use this to re-read files. {Environment.NewLine} Available Attachments: {string.Join(", ", _persistedAttachmentsNames)}",
+                ParametersSampleObject = "{\"names\": [\"**ATTENTION IMPORTANT INSTRUCTION**: use **ONLY** the names from the tool description\"]}",
+            });
+        }
+
+        var tools = new List<AiToolDescriptor>();
+
+        foreach (var q in configuration.Queries ?? [])
+        {
+            if (q.ShouldAllowModelQueries() == false)
+                continue;
+
+            var paramsSchema = ChatCompletionClient.GetSchemaForTool(q.ParametersSchema, q.ParametersSampleObject);
+            tools.Add(new AiToolDescriptor(q.Name, q.Description, paramsSchema));
+        }
+
+        foreach (var a in configuration.Actions ?? [])
+        {
+            var paramsSchema = ChatCompletionClient.GetSchemaForTool(a.ParametersSchema, a.ParametersSampleObject);
+            tools.Add(new AiToolDescriptor(a.Name, a.Description, paramsSchema));
+        }
+
+        foreach (var subAgent in configuration.SubAgents ?? [])
+        {
+            var subAgentConfiguration = GetAiAgentConfiguration(subAgent.Identifier);
+            var parameters = BuildSubAgentParameters(context, configuration, subAgentConfiguration);
+            var paramsSchema = GetSchemaForSubAgentTool(context, parameters);
+            var description = new StringBuilder(subAgent.Description).AppendLine();
+            subAgentConfiguration.AppendCapabilities(description);
+            tools.Add(new AiToolDescriptor(subAgent.Identifier, description.ToString(), paramsSchema));
+        }
+
+        return tools;
     }
 
     public static int GetMaxModelIterationsPerCall(RequestBody body, AiAgentConfiguration configuration)
@@ -437,7 +481,7 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
 
                 var trace = debugTraces.CreateTrace();
 
-                using var request = talker.CreateCompletionRequest(attachments, trace);
+                var request = talker.CreateRequest(attachments);
                 r = await talker.RunAsync(database.DocumentsStorage.ContextPool, request, trace, token);
 
                 var currentTurnUsage = AiUsage.GetUsageDifference(talker.AiUsage, _document.CurrentUsage);
@@ -588,6 +632,22 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
                         break;
                 }
 
+                // Retreat to the user turn that opened the exchange: a trimmed conversation must not start with an
+                // assistant message. When the retreat reaches the first exchange nothing is trimmed this round.
+                while (cutIndex > 1)
+                {
+                    if (cutIndex < _document.Messages.Count)
+                    {
+                        var msg = _document.Messages[cutIndex];
+                        if (msg.TryGet(ChatCompletionClient.Constants.RequestFields.Role, out string role) &&
+                            role == ChatCompletionClient.Constants.RequestFields.RoleUserValue)
+                            break;
+                    }
+
+                    cutIndex--;
+                    truncateCount--;
+                }
+
                 truncateCount = int.Min(truncateCount, _document.Messages.Count - 1);
                 if (truncateCount > 0)
                 {
@@ -729,7 +789,6 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
             : summarization.SummarizationTaskBeginningPrompt;
         beginningPrompt += $" The original system prompt was: {systemPrompt}, the rest of follows";
 
-
         var messages = new List<BlittableJsonReaderObject>()
         {
             context.ReadObject(
@@ -754,9 +813,16 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
             }, "system/summary/final/msg"));
 
         var usage = new AiUsage();
-        var tools = client.GenerateTools(context, configuration, this);
-        using var request = client.CreateCompletionRequest(context, messages, attachments: null, tools, useTools: false, streaming: false, schema: SummarizationOutputSchema);
-        var result = await client.CompleteAsync(context, request, usage, SummarizationOutputSchema, trace: null, token);
+        var tools = BuildToolDescriptors(context, configuration);
+        var request = new AiChatRequest
+        {
+            Messages = messages,
+            Tools = tools,
+            PreparedTools = client.PrepareTools(context, tools),
+            UseTools = false,
+            Schema = SummarizationOutputSchema
+        };
+        var result = await client.CompleteAsync(context, request, usage, trace: null, token);
 
         if (result.Result is not BlittableJsonReaderObject resultObj || resultObj.TryGet(nameof(SummarizationSampleObject.Answer), out string messagesSummary) == false)
             throw new UnexpectedResponseException($"Unable to get a summary from response of agent '{oldChat.Agent}'.") { RequestId = null };
@@ -923,7 +989,6 @@ public partial class ConversationHandler(ServerStore server, DocumentDatabase da
             return configuration;
         }
     }
-
 
     protected virtual async Task<string> TryPersistAsync(JsonOperationContext context, List<BlittableJsonReaderObject> historyDocs)
     {

@@ -20,6 +20,14 @@ public class AiUsage : IDynamicJson
     /// <summary>The part of the completion tokens used for reasoning by the model.</summary>
     public long ReasoningTokens { get; set; }
 
+    internal void Add(long promptTokens, long completionTokens, long cachedTokens)
+    {
+        PromptTokens += promptTokens;
+        CompletionTokens += completionTokens;
+        TotalTokens += promptTokens + completionTokens;
+        CachedTokens += cachedTokens;
+    }
+
     internal void UpdateFrom(BlittableJsonReaderObject json)
     {
         json.TryGet("prompt_tokens", out long promptTokens);

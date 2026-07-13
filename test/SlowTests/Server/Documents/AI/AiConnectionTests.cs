@@ -100,6 +100,16 @@ namespace SlowTests.Server.Documents.AI
                         }
                     }
 
+                    if (typeof(T) == typeof(Embeddings))
+                    {
+                        // not all integrations support embeddings
+                        switch (value)
+                        {
+                            case RavenAiIntegration.Anthropic:
+                                continue;
+                        }
+                    }
+
                     yield return [value];
                 }
             }

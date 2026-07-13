@@ -380,6 +380,9 @@ function getAiConnectorType(connection: AiConnectionStringDto): AiConnection["co
     if (connection.VertexSettings) {
         return "vertexSettings";
     }
+    if (connection.AnthropicSettings) {
+        return "anthropicSettings";
+    }
     return null;
 }
 
@@ -456,6 +459,14 @@ function mapAiFromSingleDto(
             location: d.VertexSettings?.Location,
             model: d.VertexSettings?.Model,
             embeddingsMaxConcurrentBatches: d.VertexSettings?.EmbeddingsMaxConcurrentBatches,
+        },
+        anthropicSettings: {
+            apiKey: d.AnthropicSettings?.ApiKey,
+            model: d.AnthropicSettings?.Model,
+            endpoint: d.AnthropicSettings?.Endpoint,
+            maxOutputTokens: d.AnthropicSettings?.MaxOutputTokens,
+            reasoning: d.AnthropicSettings?.Reasoning,
+            embeddingsMaxConcurrentBatches: d.AnthropicSettings?.EmbeddingsMaxConcurrentBatches,
         },
     } satisfies AiConnection;
 }

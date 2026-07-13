@@ -27,10 +27,17 @@ internal class MockLlmConversationHandler(
 {
     private readonly DocumentDatabase _database = database;
 
+    internal MockLlm LastClient { get; private set; }
+
     protected internal override ChatCompletionClient CreateClient()
     {
         var settings = clientSettings ?? new OpenAiChatCompletionClientSettings(new OpenAiSettings("fake-key", "https://fake.openai.com", "gpt-4o"));
-        return new MockLlm(_database.DocumentsStorage.ContextPool, settings, onRequest, onToolResult, ChatCompletionClient.ConventionsToUse);
+        LastClient = new MockLlm(_database.DocumentsStorage.ContextPool, settings, onRequest, onToolResult, ChatCompletionClient.ConventionsToUse);
+
+        // Armed here - a test only gets the client through LastClient after the call is over.
+        LastClient.ForTestingPurposesOnly();
+
+        return LastClient;
     }
 }
 

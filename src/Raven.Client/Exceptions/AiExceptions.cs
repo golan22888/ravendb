@@ -36,16 +36,22 @@ namespace Raven.Client.Exceptions
     {
         public HttpStatusCode StatusCode { get; internal set; }
 
+        public TimeSpan? RetryAfter { get; set; }
+
         public UnsuccessfulAiRequestException(string message, HttpStatusCode statusCode) : base(message)
         {
             StatusCode = statusCode;
         }
 
         public static void Throw(string message, HttpStatusCode statusCode, string requestId)
+            => Throw(message, statusCode, requestId, retryAfter: null);
+
+        public static void Throw(string message, HttpStatusCode statusCode, string requestId, TimeSpan? retryAfter)
         {
             throw new UnsuccessfulAiRequestException($"Status Code: {statusCode}, Message: {message}", statusCode)
             {
-                RequestId = requestId
+                RequestId = requestId,
+                RetryAfter = retryAfter
             };
         }
     }
@@ -59,7 +65,11 @@ namespace Raven.Client.Exceptions
 
     public sealed class RateLimitException(string message) : TooManyRequestsException(message)
     {
-        public TimeSpan RetryAfter { get; set; }
+        public new TimeSpan RetryAfter
+        {
+            get => base.RetryAfter ?? TimeSpan.Zero;
+            set => base.RetryAfter = value;
+        }
     }
 
     public class InsufficientQuotaException(string message) : TooManyRequestsException(message)

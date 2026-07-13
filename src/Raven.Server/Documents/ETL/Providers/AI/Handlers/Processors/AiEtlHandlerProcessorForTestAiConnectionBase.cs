@@ -85,6 +85,11 @@ internal class AiIntegrationHandlerProcessorForTestAiConnection<TRequestHandler,
                         aiConnectionString.MistralAiSettings = mistralAiSettings;
                         break;
 
+                    case AiConnectorType.Anthropic:
+                        var anthropicSettings = JsonDeserializationServer.AnthropicSettings(json);
+                        aiConnectionString.AnthropicSettings = anthropicSettings;
+                        break;
+
                     default:
                         throw new ArgumentOutOfRangeException();
                 }

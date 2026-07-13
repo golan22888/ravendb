@@ -54,7 +54,7 @@ public class ChatCompletionClientTests : RavenTestBase
 }";
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.AzureOpenAI | RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Google, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.AzureOpenAI | RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Google | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task GenAiClientSanityTest(Options options, GenAiConfiguration configuration)
     {
         using (var contextPool = new TransactionContextPool(RavenLogManager.Instance.CreateNullLogger(), new StorageEnvironment(StorageEnvironmentOptions.CreateMemoryOnlyForTests())))

@@ -15,7 +15,6 @@ using Raven.Client.Documents.Operations.ConnectionStrings;
 using Tests.Infrastructure;
 using Xunit;
 
-
 namespace SlowTests.Server.Documents.AI.AiAgent;
 
 public class RavenDB_24407 : RavenTestBase
@@ -430,12 +429,20 @@ public class RavenDB_24407 : RavenTestBase
             Assert.Equal(systemPrompt, chatDoc.Messages[0].Content);
             Assert.Equal(0, chatDoc.LinkedConversations.Count);
         }
-        else
+        else if (summarization)
         {
             // if it is 'Answer' is should be summarized
             Assert.Equal(2, chatDoc.Messages.Count);
             Assert.Equal(systemPrompt, chatDoc.Messages[0].Content);
             Assert.Equal(withHistory ? 1 : 0, chatDoc.LinkedConversations.Count);
+        }
+        else
+        {
+            // Truncation resumes at a user turn; with a single user turn nothing is trimmed and no history is written.
+            Assert.True(2 < chatDoc.Messages.Count);
+            Assert.Equal(systemPrompt, chatDoc.Messages[0].Content);
+            Assert.Equal("user", chatDoc.Messages[1].Role);
+            Assert.Equal(0, chatDoc.LinkedConversations.Count);
         }
     }
 
