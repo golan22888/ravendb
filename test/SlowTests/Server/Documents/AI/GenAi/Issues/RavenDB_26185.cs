@@ -109,8 +109,7 @@ public class RavenDB_26185(ITestOutputHelper output) : RavenTestBase(output)
                 ["content"] = LiveLengthInput
             }, "live-length/user");
 
-            using var request = client.CreateCompletionRequest(ctx, [system, user], attachments: null,
-                tools: null, useTools: false, streaming: streaming, schema: AnswerSchema);
+            var request = new AiChatRequest { Messages = [system, user], Schema = AnswerSchema };
             var usage = new AiUsage();
 
             await Assert.ThrowsAsync<TooManyTokensException>(async () =>
@@ -118,11 +117,11 @@ public class RavenDB_26185(ITestOutputHelper output) : RavenTestBase(output)
                 if (streaming)
                 {
                     await client.StreamingCompleteAsync(ctx, pool, StreamProperty, request,
-                        _ => Task.CompletedTask, usage, AnswerSchema, trace: null, token: timeout.Token);
+                        _ => Task.CompletedTask, usage, trace: null, token: timeout.Token);
                 }
                 else
                 {
-                    await client.CompleteAsync(ctx, request, usage, AnswerSchema, trace: null, token: timeout.Token);
+                    await client.CompleteAsync(ctx, request, usage, trace: null, token: timeout.Token);
                 }
             });
 
@@ -178,8 +177,13 @@ public class RavenDB_26185(ITestOutputHelper output) : RavenTestBase(output)
                 ["content"] = LiveLengthInput
             }, "live-tool-length/user");
 
-            using var request = client.CreateCompletionRequest(ctx, [system, user], attachments: null,
-                tools: [CreateLiveTool(ctx)], useTools: true, streaming: streaming, schema: null);
+            var request = new AiChatRequest
+            {
+                Messages = [system, user],
+                PreparedTools = [CreateLiveTool(ctx)],
+                UseTools = true,
+                Schema = null
+            };
             var usage = new AiUsage();
 
             await Assert.ThrowsAsync<TooManyTokensException>(async () =>
@@ -187,11 +191,11 @@ public class RavenDB_26185(ITestOutputHelper output) : RavenTestBase(output)
                 if (streaming)
                 {
                     await client.StreamingCompleteAsync(ctx, pool, StreamProperty, request,
-                        _ => Task.CompletedTask, usage, schema: null, trace: null, token: timeout.Token);
+                        _ => Task.CompletedTask, usage, trace: null, token: timeout.Token);
                 }
                 else
                 {
-                    await client.CompleteAsync(ctx, request, usage, schema: null, trace: null, token: timeout.Token);
+                    await client.CompleteAsync(ctx, request, usage, trace: null, token: timeout.Token);
                 }
             });
 

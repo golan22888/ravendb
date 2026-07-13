@@ -11,6 +11,7 @@ using Raven.Client.Documents.Operations.AI;
 using Raven.Client.Documents.Operations.AI.Agents;
 using Raven.Client.Documents.Operations.ConnectionStrings;
 using Raven.Server.Documents.AI;
+using Raven.Server.Documents.AI.Settings;
 using Raven.Server.Documents.Handlers.AI.Agents;
 using Raven.Server.Json;
 using Raven.Server.ServerWide;
@@ -208,7 +209,14 @@ public class RavenDB_27181(ITestOutputHelper output) : RavenTestBase(output)
             using (var stream = new MemoryStream())
             await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
             {
-                client.WriteCompletionRequestPayload(writer, context, [], [], tools: null, useTools: true, streaming: false, ChatCompletionClient.EmptySchema);
+                client.Settings.WritePayload(writer, context, new AiChatRequest
+                {
+                    Messages = [],
+                    Attachments = [],
+                    PreparedTools = null,
+                    UseTools = true,
+                    Schema = ChatCompletionClient.EmptySchema
+                }, streaming: false);
                 await writer.FlushAsync();
 
                 Assert.Contains($"{ReasoningEffortField}\"{expected}\"", Encoding.UTF8.GetString(stream.ToArray()));
@@ -267,7 +275,14 @@ public class RavenDB_27181(ITestOutputHelper output) : RavenTestBase(output)
         using (var stream = new MemoryStream())
         await using (var writer = new AsyncBlittableJsonTextWriter(context, stream))
         {
-            client.WriteCompletionRequestPayload(writer, context, [], [], tools: null, useTools: true, streaming: false, ChatCompletionClient.EmptySchema);
+            client.Settings.WritePayload(writer, context, new AiChatRequest
+            {
+                Messages = [],
+                Attachments = [],
+                PreparedTools = null,
+                UseTools = true,
+                Schema = ChatCompletionClient.EmptySchema
+            }, streaming: false);
             await writer.FlushAsync();
 
             var payload = Encoding.UTF8.GetString(stream.ToArray());

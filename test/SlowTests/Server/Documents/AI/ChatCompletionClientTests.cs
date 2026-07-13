@@ -54,7 +54,7 @@ public class ChatCompletionClientTests : RavenTestBase
 }";
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.AzureOpenAI | RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Google, DatabaseMode = RavenDatabaseMode.Single,
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.AzureOpenAI | RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Google | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single,
         Skip = "RavenDB-27400 - refusal-provoking prompt removed; coverage to be reworked on top of mocked provider responses")]
     public async Task GenAiClientSanityTest(Options options, GenAiConfiguration configuration)
     {

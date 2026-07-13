@@ -19,6 +19,7 @@ const getConnectorType = (connection: AiConnectionString): AiConnectorType => {
         OpenAiSettings: "OpenAi",
         MistralAiSettings: "MistralAi",
         VertexSettings: "Vertex",
+        AnthropicSettings: "Anthropic",
     };
 
     for (const key of Object.keys(mapping) as AiConnectionSetting[]) {
@@ -40,6 +41,7 @@ function mapAiConnectionStringToSettingsDto(connection: AiConnectionString): AiC
         connection.OpenAiSettings,
         connection.MistralAiSettings,
         connection.VertexSettings,
+        connection.AnthropicSettings,
     ].find(Boolean);
 
     if (!settings) {
@@ -52,6 +54,7 @@ function mapAiConnectionStringToSettingsDto(connection: AiConnectionString): AiC
 type FormData = ConnectionFormData<AiConnection>;
 
 const chatConnectorTypes: FormData["connectorType"][] = [
+    "anthropicSettings",
     "azureOpenAiSettings",
     "googleSettings",
     "ollamaSettings",
@@ -61,6 +64,7 @@ const chatConnectorTypes: FormData["connectorType"][] = [
 function getConnectorOptions(modelType: FormData["modelType"]): SelectOptionWithIcon<FormData["connectorType"]>[] {
     // Alphabetical order beside of Embedded
     const allOptions: SelectOptionWithIcon<FormData["connectorType"]>[] = [
+        { label: "Anthropic", value: "anthropicSettings", icon: "ai" },
         { label: "Azure OpenAI", value: "azureOpenAiSettings", icon: "openai" },
         { label: "Google AI", value: "googleSettings", icon: "google-gemini" },
         { label: "Hugging Face", value: "huggingFaceSettings", icon: "huggingface" },
@@ -75,7 +79,8 @@ function getConnectorOptions(modelType: FormData["modelType"]): SelectOptionWith
         return [...allOptions.filter((x) => chatConnectorTypes.includes(x.value))];
     }
 
-    return allOptions;
+    // Anthropic serves chat only
+    return allOptions.filter((x) => x.value !== "anthropicSettings");
 }
 
 const getTemperatureSchema = (connectorType: FormData["connectorType"]) =>
@@ -295,6 +300,15 @@ const schema = yupObjectSchema<FormData>({
                 then: (schema) => schema.trim().required(),
             }),
         embeddingsMaxConcurrentBatches: getEmbeddingsMaxConcurrentBatchesSchema("mistralAiSettings"),
+    }),
+    anthropicSettings: yupObjectSchema<FormData["anthropicSettings"]>({
+        // No Studio form for Anthropic yet - the block only round-trips API-created connection strings.
+        apiKey: yup.string().nullable(),
+        model: yup.string().nullable(),
+        endpoint: yup.string().nullable(),
+        maxOutputTokens: yup.number().nullable(),
+        reasoning: yup.string().nullable(),
+        embeddingsMaxConcurrentBatches: yup.number().nullable(),
     }),
     excludedDatabases: yup.array().of(yup.string()).optional(),
 });
