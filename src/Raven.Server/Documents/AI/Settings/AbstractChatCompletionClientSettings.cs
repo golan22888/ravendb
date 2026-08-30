@@ -9,7 +9,7 @@ using Sparrow.Json.Parsing;
 
 namespace Raven.Server.Documents.AI.Settings;
 
-internal abstract class AbstractChatCompletionClientSettings
+internal abstract partial class AbstractChatCompletionClientSettings
 {
     private readonly IAiSettings _settings;
     
@@ -49,7 +49,7 @@ internal abstract class AbstractChatCompletionClientSettings
             default:
                 throw new InvalidOperationException(
                     $"Invalid provider settings for '{connectionString.Name}' with model type '{connectionString.ModelType}'. " +
-                    $"Supported providers for '{nameof(connectionString.ModelType.Chat)}' model type are '{nameof(AiConnectorType.OpenAi)}', '{nameof(AiConnectorType.Ollama)}', '{nameof(AiConnectorType.AzureOpenAi)}' and '{nameof(AiConnectorType.Google)}'");
+                    $"Supported providers for '{nameof(connectionString.ModelType.Chat)}' model type are '{nameof(AiConnectorType.OpenAi)}', '{nameof(AiConnectorType.Ollama)}', '{nameof(AiConnectorType.AzureOpenAi)}', '{nameof(AiConnectorType.Google)}' and '{nameof(AiConnectorType.Anthropic)}'");
         }
 
         var provider = connectionString.GetActiveProvider();
@@ -66,6 +66,9 @@ internal abstract class AbstractChatCompletionClientSettings
                 return true;
             case AiConnectorType.Google:
                 settings = new GoogleChatCompletionClientSettings(connectionString.GoogleSettings);
+                return true;
+            case AiConnectorType.Anthropic:
+                settings = new AnthropicChatCompletionClientSettings(connectionString.AnthropicSettings);
                 return true;
         }
 

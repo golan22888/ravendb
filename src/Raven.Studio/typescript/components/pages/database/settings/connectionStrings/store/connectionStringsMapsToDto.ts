@@ -351,6 +351,17 @@ export function mapAiConnectionStringToDto(connection: AiConnection): AiConnecti
                       EmbeddingsMaxConcurrentBatches: mapEmbeddingsMaxConcurrentBatchesToDto(connection),
                   }
                 : null,
+        AnthropicSettings:
+            connection.connectorType === "anthropicSettings"
+                ? {
+                      ApiKey: connection.anthropicSettings.apiKey,
+                      Model: connection.anthropicSettings.model,
+                      Endpoint: connection.anthropicSettings.endpoint,
+                      MaxOutputTokens: connection.anthropicSettings.maxOutputTokens,
+                      Reasoning: connection.anthropicSettings.reasoning,
+                      EmbeddingsMaxConcurrentBatches: null,
+                  }
+                : null,
     };
 }
 

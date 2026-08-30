@@ -112,18 +112,37 @@ public sealed class GenAiTask : EtlProcess<GenAiItem, GenAiScriptResult, GenAiCo
     protected override string LoadFailureMessage =>
         $"Gen AI task '{Configuration.Name}' failed during model communication or update phase. Retrying in {FallbackTime}";
 
+    // A provider can legitimately report a zero delay; retrying with none at all would spin the batch loop.
+    private static readonly TimeSpan MinProviderFallbackTime = TimeSpan.FromSeconds(1);
+
     protected override void EnterFallbackMode(Exception e, DateTime? lastErrorTime)
     {
-        var rateLimitException = e as RateLimitException ??
-                                 (e as AggregateException)?.Flatten().InnerExceptions.OfType<RateLimitException>().FirstOrDefault();
-
-        if (rateLimitException != null)
+        if (TryFindRetryableAiException(e) is { } retryableException)
         {
-            FallbackTime = rateLimitException.RetryAfter;
+            var retryAfter = retryableException.RetryAfter ?? TimeSpan.Zero;
+            FallbackTime = retryAfter < MinProviderFallbackTime ? MinProviderFallbackTime : retryAfter;
             return;
         }
 
         base.EnterFallbackMode(e, lastErrorTime);
+    }
+
+    // A single failed item arrives bare (ExtractSingleInnerException), a partial batch as an aggregate.
+    // A rate limit wins over any other retryable failure, delay or not - a 529 must not override its delay.
+    private static UnsuccessfulAiRequestException TryFindRetryableAiException(Exception e)
+    {
+        if (e is RateLimitException rateLimit)
+            return rateLimit;
+
+        if (e is UnsuccessfulAiRequestException { RetryAfter: not null } bare)
+            return bare;
+
+        var inner = (e as AggregateException)?.Flatten().InnerExceptions;
+        if (inner == null)
+            return null;
+
+        return inner.OfType<RateLimitException>().FirstOrDefault()
+               ?? inner.OfType<UnsuccessfulAiRequestException>().FirstOrDefault(ex => ex.RetryAfter != null);
     }
 
     protected override bool ExtractionLimitReached(DocumentsOperationContext ctx, GenAiStatsScope stats, GenAiItem currentItem, int batchSize)
@@ -623,7 +642,6 @@ public sealed class GenAiTask : EtlProcess<GenAiItem, GenAiScriptResult, GenAiCo
 
                         cmd.Execute(context, recordingState: null);
                     }
-
 
                     DateTime? refreshAt = refresh
                         ? context.DocumentDatabase.Time.GetUtcNow().Add(GenAiBatchPatchCommand.RefreshDelay)

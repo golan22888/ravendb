@@ -156,7 +156,8 @@ export interface AiConnection extends ConnectionBase {
         | "embeddedSettings"
         | "openAiSettings"
         | "mistralAiSettings"
-        | "vertexSettings";
+        | "vertexSettings"
+        | "anthropicSettings";
     modelType?: Raven.Client.Documents.Operations.AI.AiModelType;
     azureOpenAiSettings?: {
         apiKey?: string;
@@ -218,6 +219,14 @@ export interface AiConnection extends ConnectionBase {
         googleCredentialsJson?: string;
         location?: string;
         model?: string;
+        embeddingsMaxConcurrentBatches?: number;
+    };
+    anthropicSettings?: {
+        apiKey?: string;
+        model?: string;
+        endpoint?: string;
+        maxOutputTokens?: number;
+        reasoning?: Raven.Client.Documents.Operations.AI.AiReasoningLevel;
         embeddingsMaxConcurrentBatches?: number;
     };
 }
