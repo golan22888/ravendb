@@ -21,11 +21,7 @@ export function EditServerWideExternalReplicationInfoHub() {
 
     return (
         <AboutViewFloating defaultOpen={hasServerWideExternalReplication ? null : "licensing"}>
-            <AccordionItemWrapper
-                targetId="about"
-                icon="about"
-                color="info"
-            >
+            <AccordionItemWrapper targetId="about" icon="about" color="info">
                 <div>
                     Defining a <strong>Server-Wide External-Replication task</strong> will create an ongoing
                     External-Replication task for each database in your cluster.
@@ -60,5 +56,6 @@ const defaultFeatureAvailability: FeatureAvailabilityData[] = [
         community: { value: false },
         professional: { value: true },
         enterprise: { value: true },
+        quill: { value: true },
     },
 ];
