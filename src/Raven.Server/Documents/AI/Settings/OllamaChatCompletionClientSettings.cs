@@ -6,7 +6,7 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.AI.Settings;
 
-internal class OllamaChatCompletionClientSettings : AbstractChatCompletionClientSettings
+internal class OllamaChatCompletionClientSettings : AbstractOpenAiCompatibleChatCompletionClientSettings
 {
     private readonly OllamaSettings _settings;
 

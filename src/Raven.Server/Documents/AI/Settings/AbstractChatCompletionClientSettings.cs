@@ -1,9 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
 using Raven.Client.Documents.Operations.AI;
-using Raven.Server.Documents.ETL.Providers.AI;
 using Sparrow.Json;
 using Sparrow.Json.Parsing;
 
@@ -17,12 +17,6 @@ internal abstract class AbstractChatCompletionClientSettings
 
     public string Model => _settings.Model;
 
-    public virtual bool SupportStrictTools => true;
-
-    public virtual bool SupportsToolChoiceNone => true;
-
-    public virtual bool EnablePromptCaching => true;
-
     public Uri GetBaseEndpointUri() => _settings.GetBaseEndpointUri();
 
     protected AbstractChatCompletionClientSettings(IAiSettings settings)
@@ -30,13 +24,11 @@ internal abstract class AbstractChatCompletionClientSettings
         _settings = settings;
     }
 
-    public abstract void HandleCompletionRequestPayload(AsyncBlittableJsonTextWriter writer);
-
     public virtual void AddHeaders(HttpRequestMessage request)
     {
     }
 
-    public virtual string GetRelativeCompletionUri() => "chat/completions";
+    public abstract string GetRelativeCompletionUri();
 
     public virtual string GetRelativeModelsUri() => "models";
     
@@ -51,7 +43,7 @@ internal abstract class AbstractChatCompletionClientSettings
             default:
                 throw new InvalidOperationException(
                     $"Invalid provider settings for '{connectionString.Name}' with model type '{connectionString.ModelType}'. " +
-                    $"Supported providers for '{nameof(connectionString.ModelType.Chat)}' model type are '{nameof(AiConnectorType.OpenAi)}', '{nameof(AiConnectorType.Ollama)}', '{nameof(AiConnectorType.AzureOpenAi)}' and '{nameof(AiConnectorType.Google)}'");
+                    $"Supported providers for '{nameof(connectionString.ModelType.Chat)}' model type are '{nameof(AiConnectorType.OpenAi)}', '{nameof(AiConnectorType.Ollama)}', '{nameof(AiConnectorType.AzureOpenAi)}', '{nameof(AiConnectorType.Google)}' and '{nameof(AiConnectorType.Anthropic)}'");
         }
 
         var provider = connectionString.GetActiveProvider();
@@ -69,6 +61,9 @@ internal abstract class AbstractChatCompletionClientSettings
             case AiConnectorType.Google:
                 settings = new GoogleChatCompletionClientSettings(connectionString.GoogleSettings);
                 return true;
+            case AiConnectorType.Anthropic:
+                settings = new AnthropicChatCompletionClientSettings(connectionString.AnthropicSettings);
+                return true;
         }
 
         return false;
@@ -79,97 +74,28 @@ internal abstract class AbstractChatCompletionClientSettings
         return new ToolCallState();
     }
 
-    protected static class Constants
-    {
-        public static class RequestFields
-        {
-            public const string Think = "think";
-            public const string Temperature = "temperature";
-            public const string ReasoningEffort = "reasoning_effort";
-            public const string Seed = "seed";
-            public const string ReasoningEffortNoneValue = "none";
-        }
-
-        public static class Headers
-        {
-            public const string OpenAiOrganization = "OpenAI-Organization";
-            public const string OpenAiProject = "OpenAI-Project";
-        }
-    }
-
     public abstract AiError ParseError(BlittableJsonReaderObject content, HttpResponseMessage response);
 
-    public string GetRefusal(BlittableJsonReaderObject choice0, BlittableJsonReaderObject message, bool streaming = false)
-        => GetRefusal(choice0, message, streaming, out _);
+    public abstract void AddAuthentication(HttpRequestMessage request);
 
-    // OpenAI's default: an explicit `refusal` field on the message (non-streaming) or on the delta
-    // (streaming - GetRefusal gets the delta here as the "message"). Providers whose refusal
-    // shape differs (Azure, Google) override this.
-    //
-    // isCompleteMessage tells a streaming caller how to accumulate the result: OpenAI streams the refusal
-    // as text fragments on the delta that must be concatenated (false), whereas Azure/Google derive a full
-    // message from finish_reason/content_filter_results per chunk that must NOT be concatenated (true).
-    public virtual string GetRefusal(BlittableJsonReaderObject choice0, BlittableJsonReaderObject message, bool streaming, out bool isCompleteMessage)
-    {
-        isCompleteMessage = false;
+    public abstract DynamicJsonValue BuildTool(JsonOperationContext ctx, string name, string description, string parametersSchema);
 
-        _ = choice0.TryGet(ChatCompletionClient.Constants.ResponseFields.Refusal, out string refusal)
-            || (message != null && message.TryGet(ChatCompletionClient.Constants.ResponseFields.Refusal, out refusal));
+    // 'request' is resolved by the client: internal messages filtered, tools in this provider's shape.
+    public abstract void WritePayload(AsyncBlittableJsonTextWriter writer, JsonOperationContext ctx, AiChatRequest request, bool streaming);
 
-        if (string.IsNullOrEmpty(refusal) == false)
-            return refusal;
+    public abstract AiResponse ParseResponse(JsonOperationContext ctx, HttpResponseMessage response, BlittableJsonReaderObject content, AiUsage usage, bool structuredOutput);
 
-        if (string.Equals(GetFinishReason(choice0), ChatCompletionClient.Constants.ResponseFields.FinishReasonContentFilter, StringComparison.OrdinalIgnoreCase))
-        {
-            isCompleteMessage = true;
-            return "Response blocked due to content policy";
-        }
+    public abstract StreamEventResult ProcessStreamEvent(JsonOperationContext ctx, BlittableJsonReaderObject sseEvent, ChatStreamState state, AiUsage usage);
 
-        return null;
-    }
+    public abstract AiResponse BuildStreamedResponse(JsonOperationContext streamingCtx, ChatStreamState state, HttpResponseMessage response);
 
-    public virtual string GetFinishReason(BlittableJsonReaderObject choice0)
-    {
-        choice0.TryGet(ChatCompletionClient.Constants.ResponseFields.FinishReason, out string finishReason);
-        return finishReason;
-    }
+    public abstract TimeSpan? GetRetryAfter(HttpResponseMessage response, AiError error);
+
+    public abstract string GetRequestId(HttpResponseHeaders headers);
 
     public virtual ValueTask<BlittableJsonReaderObject> TryGetResponseContentAsync(JsonOperationContext context, Stream stream)
     {
         return context.ReadForMemoryAsync(stream, "response/object");
-    }
-
-    public virtual DynamicJsonValue GetAiAttachmentJson(AiAttachment attachment)
-    {
-        return attachment.Type switch
-        {
-            ChatCompletionClient.Constants.AttachmentsRequestFields.MediaTypeTextPlain => new DynamicJsonValue
-            {
-                [ChatCompletionClient.Constants.AttachmentsRequestFields.Type] = ChatCompletionClient.Constants.AttachmentsRequestFields.TypeText,
-                [ChatCompletionClient.Constants.AttachmentsRequestFields.TypeText] = attachment.Data
-            },
-            ChatCompletionClient.Constants.AttachmentsRequestFields.MediaTypeApplicationPdf => new DynamicJsonValue
-            {
-                [ChatCompletionClient.Constants.AttachmentsRequestFields.Type] = ChatCompletionClient.Constants.AttachmentsRequestFields.File,
-                [ChatCompletionClient.Constants.AttachmentsRequestFields.File] = new DynamicJsonValue
-                {
-                    [ChatCompletionClient.Constants.AttachmentsRequestFields.FileName] = attachment.Name,
-                    [ChatCompletionClient.Constants.AttachmentsRequestFields.FileData] = "data:application/pdf;base64," + attachment.Data
-                }
-            },
-            ChatCompletionClient.Constants.AttachmentsRequestFields.MediaTypeImageJpeg or
-                ChatCompletionClient.Constants.AttachmentsRequestFields.MediaTypeImagePng or
-                ChatCompletionClient.Constants.AttachmentsRequestFields.MediaTypeImageGif or
-                ChatCompletionClient.Constants.AttachmentsRequestFields.MediaTypeImageWebp => new DynamicJsonValue
-                {
-                    [ChatCompletionClient.Constants.AttachmentsRequestFields.Type] = ChatCompletionClient.Constants.AttachmentsRequestFields.ImageUrl,
-                    [ChatCompletionClient.Constants.AttachmentsRequestFields.ImageUrl] = new DynamicJsonValue
-                    {
-                        [ChatCompletionClient.Constants.AttachmentsRequestFields.Url] = "data:" + attachment.Type + ";base64," + attachment.Data
-                    }
-                },
-            _ => throw new InvalidOperationException($"Attachment '{attachment.Name}' has unknown type: {attachment.Type}")
-        };
     }
 }
 

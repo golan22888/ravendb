@@ -3,7 +3,7 @@ using Sparrow.Json;
 
 namespace Raven.Server.Documents.AI.Settings;
 
-internal abstract class AbstractOpenAiChatCompletionClientSettings : AbstractChatCompletionClientSettings
+internal abstract class AbstractOpenAiChatCompletionClientSettings : AbstractOpenAiCompatibleChatCompletionClientSettings
 {
     protected readonly OpenAiBaseSettings _settings;
 

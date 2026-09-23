@@ -29,7 +29,7 @@ namespace SlowTests.Server.Documents.AI.GenAi;
 public class GenAiBasics(ITestOutputHelper output) : RavenTestBase(output)
 {
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public void CanCreateGenAiTask(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -58,7 +58,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanProcessDocuments(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -106,7 +106,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanGetGenAiOngoingTask(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -202,7 +202,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanEditGenAiTask(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -250,7 +250,7 @@ this.Comments[idx].LegitComment = $output.Blocked == false;
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanDeleteGenAiTask(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -288,7 +288,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanToggleGenAiTaskState(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -332,7 +332,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single, Skip = "need to fix")]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single, Skip = "need to fix")]
     public async Task ShouldTrackAiHashesInMetadata(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -469,7 +469,7 @@ if($output.Blocked)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task ShouldResendContextWhenPromptChanges(Options options, GenAiConfiguration configuration)
     {
         await ShouldResendContextOnConfigChange(options, configuration,
@@ -478,7 +478,7 @@ if($output.Blocked)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task ShouldResendContextWhenSchemaChanges(Options options, GenAiConfiguration configuration)
     {
         await ShouldResendContextOnConfigChange(options, configuration,
@@ -496,7 +496,7 @@ if($output.Blocked)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task ShouldResendContextWhenUpdateScriptChanges(Options options, GenAiConfiguration configuration)
     {
         await ShouldResendContextOnConfigChange(options, configuration,
@@ -505,7 +505,7 @@ if($output.Blocked)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanReproduceNullScopeNreInEtlStats(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -559,8 +559,8 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.OpenAi | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task ShouldUseTaskIdentifierInMetadataHashes(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -623,7 +623,7 @@ for (const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task ShouldThrowOnNonUniqueIdentifier(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -853,7 +853,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task ShouldStartFromNewDocumentsByDefault(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -954,7 +954,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task CanStartFromBeginningOfTime(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -1045,7 +1045,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     private async Task CanUpdateGenAiChangeVector(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore();
@@ -1112,7 +1112,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task EnsureGenAiTaskHasUniqueName(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
@@ -1142,7 +1142,7 @@ for(const comment of this.Comments)
     }
 
     [RavenTheory(RavenTestCategory.Ai)]
-    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama, DatabaseMode = RavenDatabaseMode.Single)]
+    [RavenGenAiData(IntegrationType = RavenAiIntegration.vLLM | RavenAiIntegration.Ollama | RavenAiIntegration.Anthropic, DatabaseMode = RavenDatabaseMode.Single)]
     public async Task EnsureGenAiTaskHasUniqueName2(Options options, GenAiConfiguration config)
     {
         using var store = GetDocumentStore(options);
